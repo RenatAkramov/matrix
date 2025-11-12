@@ -1,3 +1,5 @@
+#ifndef MATRIX_H__
+#define MATRIX_H__
 #include <iostream>
 #include <stdexcept>
 #include <cmath>
@@ -236,3 +238,5 @@ namespace matrix
         }
     };
 }
+
+#endif
