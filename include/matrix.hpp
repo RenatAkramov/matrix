@@ -141,7 +141,7 @@ namespace matrix
                 data = other.data;
                 other.rows = 0;
                 other.cols = 0;
-                other.data = nullptr;
+                other.data = nullptr;               
             }
             return *this;
         }
@@ -195,7 +195,6 @@ namespace matrix
                 throw std::invalid_argument("Matrix must be square for determinant calculation");
             }
             
-
             Matrix<type> temp(*this);
             type det = 1;
             const type epsilon = static_cast<type>(1e-10); 
