@@ -3,8 +3,9 @@
 #include <iostream>
 #include <stdexcept>
 #include <cmath>
+#include <span>
+#include <type_traits>
 #include <gtest/gtest.h>
-
 
 namespace matrix
 {
@@ -18,6 +19,8 @@ namespace matrix
 
         void allocateMemory() 
         {
+            static_assert(std::is_default_constructible<type>::value, 
+                          "Matrix type must be default-constructible");
             data = new type*[rows];
             for (size_t i = 0; i < rows; ++i) 
             {
@@ -38,6 +41,15 @@ namespace matrix
             }
         }
 
+        // swap
+        void swap(Matrix& other) noexcept
+        {
+            using std::swap;
+            swap(rows, other.rows);
+            swap(cols, other.cols);
+            swap(data, other.data);
+        }
+
     public:
         // default constructor
         Matrix(): rows(0), cols(0), data(nullptr) {}
@@ -52,16 +64,83 @@ namespace matrix
         }
         
         // constructor with flat_array
-        Matrix(size_t rows, size_t cols, const type* flat_array): rows(rows), cols(cols), data(nullptr) 
+        Matrix(size_t rows, size_t cols, std::span<const type> flat_array): rows(rows), cols(cols), data(nullptr) 
         {
             if (rows > 0 && cols > 0) 
             {
+                
+                size_t required_elements = rows * cols;
+                if (flat_array.size() != required_elements) 
+                {
+                    throw std::invalid_argument("Flat array wrong size");
+                }
+                
                 allocateMemory();
+                
                 for (size_t i = 0; i < rows; ++i) 
                 {
                     for (size_t j = 0; j < cols; ++j) 
                     {
                         data[i][j] = flat_array[i * cols + j];
+                    }
+                }
+            }
+        }
+
+        // constructor with std::initializer_list
+        Matrix(std::initializer_list<std::initializer_list<type>> init_list) : 
+            rows(init_list.size()), cols(0), data(nullptr) 
+        {
+            if (rows == 0) 
+            {
+                return; 
+            }
+
+            auto first_row = init_list.begin();
+            cols = first_row->size();
+            
+            for (const auto& row : init_list) 
+            {
+                if (row.size() != cols) 
+                {
+                    throw std::invalid_argument("All rows must have the same number of columns");
+                }
+            }
+
+            allocateMemory();
+            
+            size_t i = 0;
+            for (const auto& row_list : init_list) 
+            {
+                size_t j = 0;
+                for (const auto& element : row_list) 
+                {
+                    data[i][j] = element;
+                    ++j;
+                }
+                ++i;
+            }
+        }
+
+
+        // constructor with iterator
+        template <typename InputIt>
+        Matrix(size_t rows, size_t cols, InputIt first, InputIt last): rows(rows), cols(cols), data(nullptr)
+        {
+            size_t total_elements = std::distance(first, last);
+            if (rows * cols != total_elements)
+            {
+                throw std::invalid_argument("Flat array wrong size");
+            }
+            allocateMemory();
+            auto it = first;
+            for (size_t i = 0; i < rows; ++i) 
+            {
+                for (size_t j = 0; j < cols; ++j) 
+                {
+                    if (it != last) 
+                    {
+                        data[i][j] = *it++;
                     }
                 }
             }
@@ -84,64 +163,65 @@ namespace matrix
         }
 
         // copy constructor
-        Matrix(const Matrix& other) : rows(other.rows), cols(other.cols), data(nullptr) 
+        Matrix(const Matrix& other) : rows(0), cols(0), data(nullptr) 
         {
             if (other.data != nullptr) 
             {
-                allocateMemory();
-                for (size_t i = 0; i < rows; ++i) 
+                type** new_data = nullptr;
+                try 
                 {
-                    for (size_t j = 0; j < cols; ++j) 
+                    new_data = new type*[other.rows];
+                    for (size_t i = 0; i < other.rows; ++i) 
                     {
-                        data[i][j] = other.data[i][j];
+                        new_data[i] = new type[other.cols];
                     }
+                    
+                    for (size_t i = 0; i < other.rows; ++i) 
+                    {
+                        for (size_t j = 0; j < other.cols; ++j) 
+                        {
+                            new_data[i][j] = other.data[i][j];
+                        }
+                    }
+                    
+                    rows = other.rows;
+                    cols = other.cols;
+                    data = new_data;
+                } 
+                catch (...) 
+                {
+                    if (new_data != nullptr) 
+                    {
+                        for (size_t i = 0; i < other.rows; ++i) 
+                        {
+                            delete[] new_data[i];
+                        }
+                        delete[] new_data;
+                    }
+                    throw; 
                 }
             }
         }
 
         // copy assignment
-        Matrix& operator=(const Matrix& other) 
+        Matrix& operator=(Matrix other) 
         {
-            if (this != &other) 
-            {
-                clearMemory();
-                rows = other.rows;
-                cols = other.cols;
-                if (other.data != nullptr) 
-                {
-                    allocateMemory();
-                    for (size_t i = 0; i < rows; ++i) 
-                    {
-                        for (size_t j = 0; j < cols; ++j) 
-                        {
-                            data[i][j] = other.data[i][j];
-                        }
-                    }
-                }
-            }
+            swap(other);
             return *this;
         }    
 
         // move constructor
-        Matrix(Matrix&& other) noexcept: rows(other.rows), cols(other.cols), data(other.data) 
+        Matrix(Matrix&& other) noexcept : Matrix() 
         {
-            other.rows = 0;
-            other.cols = 0;
-            other.data = nullptr;
-        }    
+            swap(other);
+        }   
 
         // move assignment
         Matrix& operator=(Matrix&& other) noexcept 
         {
             if (this != &other) 
             {
-                clearMemory();
-                rows = other.rows;
-                cols = other.cols;
-                data = other.data;
-                other.rows = 0;
-                other.cols = 0;
-                other.data = nullptr;               
+                swap(other);
             }
             return *this;
         }
@@ -234,6 +314,12 @@ namespace matrix
             }
 
             return det;
+        }
+
+        // Public swap method for external use
+        friend void swap(Matrix& first, Matrix& second) noexcept
+        {
+            first.swap(second);
         }
     };
 }
